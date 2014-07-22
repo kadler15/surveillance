@@ -1,2 +1,2 @@
-raspi-surveillance
-==================
+surveillance
+============
