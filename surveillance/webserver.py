@@ -1,18 +1,18 @@
 '''
-raspi-surveillance.py:
+webserver.py:
 
 Web server providing basic access to content captured
-by Raspberry Pi Camera.
+by network cameras through a web interface.
 '''
 
 import json
-import os
 import mimetypes
 
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from urlparse import urlparse, parse_qs
+from utils import Utils
 
-class WebAPI(object):
+class WebApi(object):
     '''
     Various classmethods to handle URL parsing and generating
     proper HTTP response headers and data.
@@ -97,15 +97,15 @@ class WebAPI(object):
         '''
         
         path = Utils.get_absolute_path( 'images/{0}'.format( img_name ) )
-        type, encoding =  mimetypes.guess_type( path )
+        typ, _ =  mimetypes.guess_type( path )
         
         f = open( path, 'rb' )
-        bin = f.read()
+        b = f.read()
         f.close()
         
         return { 
-                'type' : type, 
-                'data' : bin,
+                'type' : typ, 
+                'data' : b,
                 }
     
     @classmethod
@@ -131,9 +131,9 @@ class WebAPI(object):
         '''
         
         path = Utils.get_absolute_path( 'static/' + path )
-        type, encoding =  mimetypes.guess_type( path )
+        typ, _ =  mimetypes.guess_type( path )
         
-        mode = 'r' if type in cls.text_mime_types else 'rb'
+        mode = 'r' if typ in cls.text_mime_types else 'rb'
         f = open( path, mode )
         text = f.read()
         f.close()
@@ -143,47 +143,37 @@ class WebAPI(object):
                 'data' : text,
                 }
     
-class HttpHandler(BaseHTTPRequestHandler):
+class WebHandler(BaseHTTPRequestHandler):
     '''
     HTTP handler class
     '''
     
     def do_GET(self):
         try:
-            api_output = WebAPI.dispatch( self.path )
+            api_output = WebApi.dispatch( self.path )
             if api_output == None:
                 raise Exception()
 
             self.send_response( 200 )
 
             self.send_header( 'Content-Type', api_output['type'] )
+            self.send_header( 'Content-Length', len( api_output['data'] ) )
             self.end_headers()
             
             self.wfile.write(api_output['data'])
             return
         
         except:
-            self.send_error(404, 'error')
-            
-class Utils():
+            self.send_error(404, 'error') 
+
+class WebServer():
     '''
-    Utility class
+    Surveillance web server
     '''
     
-    @classmethod 
-    def get_absolute_path( cls, relative_path ):
-        '''
-        Get an absolute file path for a relative file path.
-        The absolute path is based on the script directory.
-        '''
-        
-        script_dir = os.path.dirname(os.path.realpath(__file__))
-        return os.path.join( script_dir, relative_path ) 
-
-def main():
-    server_address = ('localhost', 8080)
-    httpd = HTTPServer( server_address, HttpHandler )
-    httpd.serve_forever()
-  
-if __name__ == '__main__':
-    main()
+    @classmethod
+    def start( self, servers, port ):
+        server_address = ('localhost', port)
+        httpd = HTTPServer( server_address, WebHandler )
+        servers.append( httpd )
+        httpd.serve_forever()
