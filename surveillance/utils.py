@@ -18,5 +18,5 @@ class Utils():
         The absolute path is based on the script directory.
         '''
         
-        script_dir = os.path.dirname(os.path.realpath(__file__))
+        script_dir = os.path.dirname( os.path.realpath(__file__) )
         return os.path.join( script_dir, relative_path )

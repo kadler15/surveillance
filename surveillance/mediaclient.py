@@ -19,29 +19,29 @@ class MediaClient():
     camera_id = 0
     
     @classmethod
-    def wait_server_ready(cls, base_url):
+    def wait_server_ready( cls, base_url ):
         while( True ):
-            req = urllib2.Request(base_url)
-            response = urllib2.urlopen(req)
+            req = urllib2.Request( base_url + '/ready' )
+            response = urllib2.urlopen( req )
             content_type = response.info().getheader( 'Content-Type' )
             content_length = response.info().getheader( 'Content-Length' )
             
             if content_type == 'application/json':
                 json_str = response.read( int( content_length ) )
-                json_dict = json.loads(json_str)
+                json_dict = json.loads( json_str )
                 
                 if json_dict['ready']:
                     break
                 
-            time.sleep(5)
+            time.sleep( 5 )
             
     @classmethod
-    def register_camera(cls, desc, base_url):
+    def register_camera( cls, desc, base_url ):
         json_dict = { 'desc' : desc, }
         json_str = json.dumps( json_dict )
         
         url = base_url + '/register'
-        req = urllib2.Request(url)
+        req = urllib2.Request( url )
         req.add_header( 'Content-Type', 'application/json' )
         req.add_header( 'Content-length', '{0}'.format( len( json_str ) ) )
         
@@ -55,11 +55,11 @@ class MediaClient():
             cls.camera_id = json_dict['camera_id']
             
     @classmethod
-    def send_image(cls, camera, base_url):
+    def send_image( cls, camera, base_url ):
         img = camera.get_image()
             
         url = base_url + '/upload/image?camera_id={0}'.format( cls.camera_id )
-        req = urllib2.Request(url, img)
+        req = urllib2.Request( url, img )
         req.add_header( 'Cache-Control', 'no-cache' )
         req.add_header( 'Content-Type', 'image/jpeg' )
         req.add_header( 'Content-Length', '{0}'.format( len( img ) ) )
@@ -73,16 +73,16 @@ class MediaClient():
             print json_str
     
     @classmethod
-    def start(cls, server, port):
+    def start( cls, server, port ):
         '''
         Start the media client and connect to the server
         at the specified port.
         '''
         
         camera = BasicSimulatorCamera()
-        base_url = '{0}:{1}'.format(server, port)
+        base_url = '{0}:{1}'.format( server, port )
         
-        cls.wait_server_ready(base_url)
+        cls.wait_server_ready( base_url )
         
         while( True ):
             cls.send_image(camera, base_url)

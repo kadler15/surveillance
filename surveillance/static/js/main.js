@@ -6,7 +6,7 @@ $(document).ready( function()
             var end = document.getElementById("end");
 
 			// Form the URL with start & end queries for the available-images call
-            var url = '/available-images.json?start=' + start.value + '&end=' + end.value;
+            var url = '/available-images?start=' + start.value + '&end=' + end.value;
 			
 			// Get the images list using an asynchronous call
             var json = $.ajax(
