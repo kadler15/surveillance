@@ -1,89 +1,90 @@
-'''
-mediaserver.py:
+import cherrypy
 
-Media server used by network cameras to off-load
-their media content to a central location.
-'''
-
-import datetime
-import json
-
-from server import Server, ServerHandler
 from database import Database
+from utils import Utils
 
-class MediaHandler(ServerHandler):
+class MediaServer(object):    
     '''
-    Media server handler class.
+    Media server for internal camera clients to upload images.
     '''
-    
-    def get_GET_handlers( self ):
-        return [('^/ready$',        self.GET_server_ready),]
+      
+    def __init__( self, db_name ):
+        self.db_name = db_name
+        self.database = None
         
-    def get_POST_handlers( self ):
-        return [('^/register$',     self.POST_camera_register),
-                ('^/upload/image$', self.POST_upload_image),]
-    
-    def GET_server_ready( self, parse_result, qs_dict ):
-        db = Database.get_instance()
-        
-        json_dict = { 'ready' : db.is_ready(), }
-        self.send_json_dict_response( json_dict )
-    
-    def POST_camera_register( self, parse_result, qs_dict ):
-        '''
-        Camera registration handler.
-        '''
-        
-        content_type, content_length = self.extract_header_info();
-        
-        if content_type == 'application/json':
-            json_str = self.rfile.read( int( content_length ) )
-            json_dict = json.loads( json_str )
-                
-            db = Database.get_instance()
-            camera_id = db.get_camera_id_for_desc( json_dict['desc'] )
+    def db( self ):
+        if self.database == None:
+            self.database = Database()
+            self.database.connect( self.db_name )
             
-            if camera_id == None:
-                camera_id = db.insert_camera( json_dict['desc'] )
-            
-            json_dict = { 'camera_id' : id }
-            self.send_json_dict_response( json_dict )
-        
-    def POST_upload_image( self, parse_result, qs_dict ):
+        return self.database
+    
+    @cherrypy.expose
+    def index( self ):
+        return cherrypy.NotFound
+    
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def ready( self ):
         '''
-        Image upload handler.
+        /ready
+        
+        Returns a simple json dict indicating whether
+        the server is ready to accept or serve images.
+        '''
+        return { 'ready' : self.db().is_ready(), }
+    
+    @cherrypy.expose
+    @cherrypy.tools.json_in()
+    @cherrypy.tools.json_out()
+    def register( self ):
+        '''
+        /register
+        
+        Registers the camera with the description provided via JSON. 
+        
+        Returns a JSON response with the camid.
         '''
         
-        content_type, content_length = self.extract_header_info();
+        data = cherrypy.request.json
         
-        if content_type == 'image/jpeg':
-            img = self.rfile.read( int( content_length ) )
+        camid = self.db().get_camid_for_desc( data['desc'] )
             
-            timestamp = datetime.datetime.now()
-            timestr = timestamp.strftime( '%Y%m%d %H%M%S%f')
-            path = 'images/{0}.jpg'.format( timestr )
+        if camid == None:
+            camid = self.db().insert_camera( data['desc'] )
+            
+        return { 'camid' : camid }
+    
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def upload( self, camid=0 ):
+        '''
+        /upload?camid=X
+        
+        Inserts metadata about the uploaded image into the DB
+        and saves the image to disk.
+        
+        Returns a JSON struct containing the imgid and an error
+        flag indicating whether or not the upload was successful
+        and whether or not the imgid is valid.
+        '''
+        
+        length = cherrypy.request.headers['Content-Length']
+        content_type = cherrypy.request.headers['Content-Type']
+        raw = cherrypy.request.body.read( int( length ) )
+        
+        if self.db().get_desc_for_camid( camid ) == None:
+            return { 'imgid' : -1, 'error' : 1 }
+        
+        if content_type == 'image/jpeg':           
+            timestamp = Utils.timestamp_now_str()
+            path = 'images/{0}_{1}.jpg'.format( camid, timestamp )
             f = open( path, 'wb' )
-            f.write( img )
+            f.write( raw )
             f.close()
             
-            db = Database.get_instance()
-            image_id = db.insert_image( int( qs_dict['camera_id'][0] ), 'jpg', path, path, timestamp )
+            imgid = self.db().insert_image( camid, content_type, path, path, timestamp )
             
-            print db.get_most_recent_thumbs(20)
-            
-            json_dict = { 'image_id' : image_id, }
-            self.send_json_dict_response( json_dict )
-            
-class MediaServer(Server):
-    '''
-    Media server.
-    '''
-    
-    @classmethod
-    def custom_start(cls):
-        db = Database.get_instance()
-        db.connect('surveillance.db')
+            return { 'imgid' : imgid, 'error' : 0 }
         
-    @classmethod
-    def get_handler_class(cls):
-        return MediaHandler
+        return { 'imgid' : -1, 'error' : 1 }

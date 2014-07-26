@@ -1,87 +1,252 @@
 '''
-mediaclient.py:
+databasecpy.py:
 
-Media client for the network cameras to send
-image data to the media server.
+Database helpers.
 '''
 
-import os
-import sqlite3
+from utils import Utils
+
+from sqlalchemy import create_engine
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Sequence, Text, UniqueConstraint
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class Image(Base):
+    '''
+    Bound to images table in DB.
+    '''
+    
+    __tablename__ = 'images'
+    imgid = Column( Integer, Sequence( 'imgid_seq' ), primary_key=True )
+    camid = Column( Integer, ForeignKey( 'cameras.camid' ), nullable=False )
+    content_type = Column( Text, nullable=False )
+    thumb = Column( Text, nullable=False, unique=True )
+    full = Column( Text, nullable=False, unique=True )
+    timestamp = Column( DateTime, nullable=False )
+    __table_args__ = (UniqueConstraint( 'camid', 'timestamp', name='_camid_timestamp_uc' ), )
+    
+    def __repr__(self):
+        return "<Image(imgid='{0}', camid='{1}', content_type='{2}', thumb='{3}', full='{4}', timestamp='{5}')>".\
+            format( self.imgid, self.camid, self.content_type, self.thumb, self.full, self.timestamp )
+        
+class Camera(Base):
+    '''
+    Bound to cameras table in DB.
+    '''
+
+    __tablename__ = 'cameras'
+    camid = Column( Integer, Sequence( 'camid_seq' ), primary_key=True )
+    desc = Column( Text, nullable=False, unique=True )
+    
+    def __repr__(self):
+        return "<Camera(camid='{0}', desc='{1}')>".format( self.camid, self.desc )
 
 class Database(object):
-    Instance = None
-
-    @classmethod
-    def get_instance( cls ):
-        if cls.Instance is None:
-            cls.Instance = Database()
-        return cls.Instance
+    '''
+    Database wrapper to provide easier access to SQL Alchemy
+    SQLite database.
+    '''
     
     def __init__( self ):
-        self.conn = None
-        self.c = None
+        self.db = None
         self.ready = False
         
     def connect( self, db_filename ):
-        db_is_new = not os.path.exists( db_filename )
-        self.conn = sqlite3.connect( db_filename, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES )
-        self.c = self.conn.cursor()
+        '''
+        Connect to the DB and configure binding.
+        '''
         
-        if db_is_new:
-            self.init_schema()
+        self.db = create_engine( 'sqlite:///{0}'.format( db_filename ) )
+        self.Session = sessionmaker()
+        self.Session.configure( bind=self.db )
+        Base.metadata.create_all( bind=self.db )
             
         self.ready = True
-                
-    def init_schema( self ):
-        self.c.execute( 'CREATE TABLE Images' 
-                        ' (Id INTEGER PRIMARY KEY, LocId INTEGER,' 
-                        ' ImageExt TEXT, ThumbPath TEXT, FullPath TEXT, Ts DATETIME,' 
-                        ' FOREIGN KEY(LocId) REFERENCES Locations(Id))' )
-        
-        self.c.execute( 'CREATE TABLE Cameras(Id INTEGER PRIMARY KEY, Desc TEXT NOT NULL UNIQUE)' )
         
     def is_ready( self ):
+        '''
+        Returns True if the DB engine is created and configured.
+        '''
+        
         return self.ready
     
-    def insert_image( self, loc_id, ext, thumbpath, fullpath, timestamp ):
-        self.c.execute( 'INSERT INTO Images VALUES(?, ?, ?, ?, ?, ?)', 
-                        (None, loc_id, ext, thumbpath, fullpath, timestamp) )
+    def insert_image( self, camid, content_type, thumbpath, fullpath, timestamp ):
+        '''
+        Insert a fully-specified image into the images table.
         
-        return self.c.lastrowid
+        Returns the imgid.
+        '''
+        
+        session = self.Session()
+        
+        timestamp = Utils.timestamp_str_to_datetime( timestamp )
+        
+        image = Image( camid=camid, content_type=content_type, 
+                       thumb=thumbpath, full=fullpath, timestamp=timestamp )
+        
+        session.add( image )
+        session.commit()
+        
+        return image.imgid
         
     def insert_camera( self, desc ):
-        self.c.execute( 'INSERT INTO Cameras(Desc) VALUES(NULL, ?)', (desc,) )
+        '''
+        Insert a camera with the provided description into the
+        cameras table.
+
+        Returns the camid.
+        '''
         
-        # Return the UID
-        return self.c.lastrowid
+        session = self.Session()
         
-    def get_camera_id_for_desc( self, desc ):
-        self.c.execute( 'SELECT Id FROM Cameras WHERE Desc=?', (desc,) )
+        camera = Camera( desc=desc )
         
-        row = self.c.fetchone()
-        return row['Id'] if row != None else None
+        session.add( camera )
+        session.commit()
+        
+        return camera.camid
+        
+    def get_camid_for_desc( self, desc ):
+        '''
+        Return the camid for the camera with the provided description.
+        Return None if not found.
+        '''
+        
+        session = self.Session()
+        
+        for row in session.query(Camera).\
+                    filter(Camera.desc==desc):
+            return row.camid
+        
+        return None
     
-    def get_desc_for_camera_id( self, loc_id ):
-        self.c.execute( 'SELECT Desc FROM Cameras WHERE Id=?', (loc_id,) )
+    def get_desc_for_camid( self, camid ):
+        '''
+        Return the description for the provided camid.
+        Return None if not found.
+        '''
         
-        row = self.c.fetchone()
-        return row['Desc'] if row != None else None
+        session = self.Session()
+        
+        for row in session.query( Camera ).\
+                    filter( Camera.camid==camid ):
+            return row.desc
+        
+        return None
     
-    def get_most_recent_thumbs( self, limit ):
-        self.c.execute( 'SELECT Ts, LocId, ImageExt, ThumbPath FROM Images' 
-                        ' ORDER BY datetime(Ts) DESC' )
+    def get_most_recent_images( self, limit ):
+        '''
+        Get a list of the most recent images, up to the specified
+        limit.
         
-        rows = self.c.fetchmany(limit)
-        return rows
+        Returns a list of tuples (camid, timestamp).
+        '''
+        
+        session = self.Session()
+        
+        imgs = []
+        for row in session.query( Image ).\
+                    order_by( Image.timestamp )[:limit]:
+            imgs.append( (row.camid, Utils.timestamp_datetime_to_str( row.timestamp ) ) )
+
+        return imgs
     
-    def get_thumbs_for_range( self, start, end ):
-        self.c.execute( 'SELECT Ts, LocId ImageExt, ThumbPath FROM Images'
-                        ' WHERE Ts BETWEEN datetime(?) AND datetime(?)'
-                        ' ORDER BY datetime(Ts) DESC', (start, end) )
+    def get_most_recent_images_for_camid( self, camid, limit ):
+        '''
+        Get a list of the most recent images, up to the specified
+        limit, for a camid.
         
-    def get_full_image_for_id( self, img_id ):
-        self.c.execute( 'SELECT FullPath FROM Images'
-                        ' WHERE Id=?', (img_id,) )
+        Returns a list of tuples (camid, timestamp).
+        '''
         
-        row = self.c.fetchone()
-        return row['Full'] if row != None else None
+        session = self.Session()
+        
+        imgs = []
+        for row in session.query( Image ).\
+                    filter( Image.camid==camid ).\
+                    order_by( Image.timestamp )[:limit]:
+            imgs.append( (row.camid, Utils.timestamp_datetime_to_str( row.timestamp ) ) )
+
+        return imgs
+    
+    def get_images_for_range( self, start, end ):
+        '''
+        Get a list of the images between timestamps start and end.
+        
+        Returns a list of tuples (camid, timestamp).
+        '''
+        
+        session = self.Session()
+        
+        start = Utils.timestamp_str_to_datetime( start )
+        end = Utils.timestamp_str_to_datetime( end )
+        
+        imgs = []
+        for row in session.query( Image ).\
+                    filter( Image.timestamp > start ).\
+                    filter( Image.timestamp < end ).\
+                    order_by( Image.timestamp ):
+            imgs.append( (row.camid, Utils.timestamp_datetime_to_str( row.timestamp ) ) )
+                    
+        return imgs
+    
+    def get_images_for_range_camid( self, camid, start, end ):
+        '''
+        Get a list of the images between timestamps start and end
+        for the provided camid. List of tuples (camid, timestamp).
+        '''
+        
+        session = self.Session()
+        
+        start = Utils.timestamp_str_to_datetime( start )
+        end = Utils.timestamp_str_to_datetime( end )
+        
+        imgs = []
+        for row in session.query( Image ).\
+                    filter( Image.camid==camid).\
+                    filter( Image.timestamp > start ).\
+                    filter( Image.timestamp < end ).\
+                    order_by( Image.timestamp ):
+            imgs.append( (row.camid, Utils.timestamp_datetime_to_str( row.timestamp ) ) )
+                    
+        return imgs
+    
+    def get_thumb_path_for_image( self, camid, timestamp ):
+        '''
+        Get the thumb-image path for the provided camid and
+        timestamp. 
+        
+        Returns a tuple (content type, path) or None.
+        '''
+        
+        session = self.Session()
+        
+        timestamp = Utils.timestamp_str_to_datetime( timestamp )
+        
+        for row in session.query( Image ).\
+                    filter( Image.camid==camid ).\
+                    filter( Image.timestamp==timestamp):
+            return (row.content_type, row.thumb)
+        
+        return None
+        
+    def get_full_path_for_image( self, camid, timestamp ):
+        '''
+        Get the full-image path for the provided camid and
+        timestamp. 
+        
+        Returns a tuple (content type, path) or None.
+        '''
+        
+        session = self.Session()
+        
+        timestamp = Utils.timestamp_str_to_datetime( timestamp )
+        
+        for row in session.query( Image ).\
+                    filter( Image.camid==camid ).\
+                    filter( Image.timestamp==timestamp ):
+            return (row.content_type, row.full)
+        
+        return None

@@ -1,106 +1,154 @@
-'''
-webserver.py:
-
-Web server providing basic access to content captured
-by network cameras through a web interface.
-'''
-
+import cherrypy
 import json
-import mimetypes
 
-from server import Server, ServerHandler
+from database import Database
+from datetime import datetime
 from utils import Utils
-    
-class WebHandler(ServerHandler):
+
+def jsonp( func ):
     '''
-    HTTP handler class
+    Handler for cherrypy to wrap json responses with proper
+    callback if a cherrypy method is decorated with @jsonp.
     '''
     
-    # The MIME types associated with this project that we know for sure
-    # need to be opened as text files.
-    def get_text_mime_types( self ):
-        return ['text/css',
-                'text/html',  
-                'text/javascript',
-                'text/plain',
-                'text/xml',
-                'application/javascript',
-                'application/json',
-                'application/jsonp',]
+    def handle_callback( self, *args, **kwargs ):
+        callback, _ = None, None
+        if 'callback' in kwargs and '_' in kwargs:
+            callback, _ = kwargs['callback'], kwargs['_']
+            del kwargs['callback'], kwargs['_']
+        ret = func( self, *args, **kwargs )
+        if callback is not None:
+            ret = '%s(%s)' % (callback, json.dumps( ret ))
+        return ret
+    return handle_callback
+
+class WebServer(object):
+    '''
+    Web server for external web clients to access archived imagery.
+    '''
     
-    def get_GET_handlers( self ):
-        return [('^/available-images$', self.GET_available_images),
-                ('^/images/.*',         self.GET_image),
-                ('^/(index\.html)?$',   self.GET_index),
-                ('^/.*',                self.GET_base),]
+    def __init__( self, db_name ):
+        self.db_name = db_name
+        self.database = None
         
-    def GET_available_images( self, parse_result, qs_dict ):
-        '''
-        available-images handler
-        '''
-        
-        # Get start and end indexes from query
-        start = int( qs_dict['start'][0] )
-        end = int( qs_dict['end'][0] )
-        
-        # Generate a list of image URLs
-        img_urls = []
-        for i in range( start, end + 1 ):
-            img_urls.append( '/images/{0}.jpg'.format( i ) )
-        
-        # Create a dict to run through json.dumps and wrap it with the callback
-        json_dict = { 'imgurls' : img_urls }
-        json_str = json.dumps( json_dict )
-        jsonp_str = '{0}({1})'.format( qs_dict['callback'][0], json_str )
-        
-        self.send_json_str_response( jsonp_str )
+    def db( self ):
+        if self.database == None:
+            self.database = Database()
+            self.database.connect( self.db_name )
+            
+        return self.database
     
-    def GET_image( self, parse_result, qs_dict ):
+    def package_thumbs( self, imgtups ):
         '''
-        Image file access handler
+        Convert a list of tuples from the DB (camid, timestamp) to
+        a list of URLs that will point to the thumbnails.
         '''
         
-        img_name = parse_result.path[len( '/images/' ):]
-        path = Utils.get_absolute_path( 'images/{0}'.format( img_name ) )
-        typ, _ =  mimetypes.guess_type( path )
+        imgs = []
+        for camid, timestamp in imgtups:
+                imgs.append( 'thumb?camid={0}&timestamp={1}'.format( camid, timestamp ) )
+                
+        return imgs
+    
+    def image( self, camid, timestamp, dbfunc ):
+        '''
+        Returns the binary image data for the provided camid and timestamp
+        using the provided dbfunc to get the image path.
+        '''
+        
+        if timestamp == None or timestamp == '':
+            return cherrypy.NotFound
+        
+        imgpair = dbfunc( camid, timestamp )
+        
+        if imgpair == None:
+            return cherrypy.NotFound
+        
+        typ, path = imgpair
         
         f = open( path, 'rb' )
         b = f.read()
         f.close()
         
-        self.send_response_data( typ, b )
+        cherrypy.response.headers['Content-Type'] = typ
+        return b
     
-    def GET_index( self, parse_result, qs_dict ):
+    @cherrypy.expose
+    def index( self ):
         '''
-        index.html handler
+        /
+        
+        Serves the main HTML page for web access.
         '''
         
         f = open( Utils.get_absolute_path( 'templates/index.html' ), 'r' )
         html = f.read()
         f.close()
         
-        self.send_response_data( 'text/html', html )
-        
-    def GET_base( self, parse_result, qs_dict ):
-        '''
-        Base URL (/) handler
-        '''
-        
-        path = Utils.get_absolute_path( 'static/' + parse_result.path[1:] )
-        typ, _ =  mimetypes.guess_type( path )
-        
-        mode = 'r' if typ in self.get_text_mime_types() else 'rb'
-        f = open( path, mode )
-        data = f.read()
-        f.close()
-            
-        self.send_response_data( type, data ) 
-
-class WebServer(Server):
-    '''
-    Surveillance web server
-    '''
+        return html
     
-    @classmethod
-    def get_handler_class( cls ):
-        return WebHandler
+    @cherrypy.expose
+    @jsonp
+    def recentimages( self, camid=None, limit=10 ):
+        '''
+        /recentimages?camid=X&limit=Y 
+        
+        Get the most recent images, up to the specified limit,
+        only for the specified camid if one is provided.
+        '''
+        
+        try:
+            if camid == None or camid == '':
+                imgtups = self.db().get_most_recent_images( limit )
+            else:
+                imgtups = self.db().get_most_recent_images_for_camid( camid, limit )
+
+            return { 'imgurls' : self.package_thumbs( imgtups ) } 
+        except:
+            return { 'imgurls' : [] }
+    
+    @cherrypy.expose
+    @jsonp
+    def availableimages( self, camid=None, start=None, end=None ):
+        '''
+        /availableimages?camid=X&start=Y&end=Z
+        
+        Get the images within the provided range, only
+        for the specified camid is one is provided.
+        '''
+        
+        if start == None or start == '':
+            start = Utils.timestamp_datetime_to_str( datetime( 1970, 1, 1, ) )
+            
+        if end == None or end == '':
+            end = Utils.timestamp_datetime_to_str( datetime.now() )
+        
+        try:
+            if camid == None or camid == '':
+                imgtups = self.db().get_images_for_range( start, end )
+            else:
+                imgtups = self.db().get_images_for_range_camid( camid, start, end )
+            
+            return { 'imgurls' : self.package_thumbs( imgtups ) }
+        except:
+            return { 'imgurls' : [] }
+    
+    @cherrypy.expose
+    def thumb( self, camid=0, timestamp=None ):
+        '''
+        /thumb?camid=X&timestamp=Y
+        
+        Returns the binary thumbnail data for a given camid and timestamp.
+        '''
+        
+        return self.image( camid, timestamp, self.db().get_thumb_path_for_image )
+    
+    @cherrypy.expose    
+    def full( self, camid=0, timestamp=None ):
+        '''
+        /full?camid=X&timestamp=Y
+        
+        Returns the binary full image data for a given camid and timestamp.
+        '''
+        
+        return self.image( camid, timestamp, self.db().get_full_path_for_image )
