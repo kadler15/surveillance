@@ -1,5 +1,4 @@
 surveillance
 ============
-Two third party Python modules must be installed:
-	- cherrypy
-	- sqlalchemy
+Python modules cherrypy and sqlalchemy must be installed on the server. The
+client side requires no additional modules.
