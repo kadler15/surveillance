@@ -19,7 +19,7 @@ $(document).ready( function()
                         var inner = '';
                         for( var i = 0; i < json.imgurls.length; i++ )
                         {
-                            inner += '<img src="' + json.imgurls[i] + '"><br>';
+							inner += '<li><a href="#"><img src="' + json.imgurls[i] + '" alt="description" /><img src="' + json.imgurls[i] + '" alt="description" class="preview" /></a></li>'
                         }
                         document.getElementById('images').innerHTML = inner;
                     }

@@ -1,26 +1,15 @@
+'''
+webserver.py:
+
+CherryPy web server class exposes URLs that allow access to archived 
+surveillance images.
+'''
+
 import cherrypy
-import json
 
 from database import Database
 from datetime import datetime
 from utils import Utils
-
-def jsonp( func ):
-    '''
-    Handler for cherrypy to wrap json responses with proper
-    callback if a cherrypy method is decorated with @jsonp.
-    '''
-    
-    def handle_callback( self, *args, **kwargs ):
-        callback, _ = None, None
-        if 'callback' in kwargs and '_' in kwargs:
-            callback, _ = kwargs['callback'], kwargs['_']
-            del kwargs['callback'], kwargs['_']
-        ret = func( self, *args, **kwargs )
-        if callback is not None:
-            ret = '%s(%s)' % (callback, json.dumps( ret ))
-        return ret
-    return handle_callback
 
 class WebServer(object):
     '''
@@ -29,19 +18,35 @@ class WebServer(object):
     
     def __init__( self, db_name ):
         self.db_name = db_name
-        self.database = None
         
-    def db( self ):
-        if self.database == None:
-            self.database = Database()
-            self.database.connect( self.db_name )
-            
-        return self.database
+        cherrypy.engine.subscribe('start', self.setup)
+        cherrypy.engine.subscribe('stop', self.cleanup)
+        
+    #==========================================================================
+    # CherryPy Engine Setup / Cleanup
+    #==========================================================================
+    def setup( self ):
+        '''
+        Called on CherryPy engine start.
+        '''
+        
+        self.db = Database()
+        self.db.connect( self.db_name )
     
+    def cleanup( self ):
+        '''
+        Called on CherryPy engine stop.
+        '''
+        
+        return
+    
+    #==========================================================================
+    # Web Server Helpers
+    #==========================================================================
     def package_thumbs( self, imgtups ):
         '''
-        Convert a list of tuples from the DB (camid, timestamp) to
-        a list of URLs that will point to the thumbnails.
+        Convert a list of tuples from the DB (camid, timestamp) to a list of 
+        URLs that will point to the thumbnails.
         '''
         
         imgs = []
@@ -52,7 +57,7 @@ class WebServer(object):
     
     def image( self, camid, timestamp, dbfunc ):
         '''
-        Returns the binary image data for the provided camid and timestamp
+        Returns the binary image data for the provided camid and timestamp 
         using the provided dbfunc to get the image path.
         '''
         
@@ -73,6 +78,9 @@ class WebServer(object):
         cherrypy.response.headers['Content-Type'] = typ
         return b
     
+    #==========================================================================
+    # CherryPy HTTP/URL Handlers
+    #==========================================================================
     @cherrypy.expose
     def index( self ):
         '''
@@ -88,33 +96,33 @@ class WebServer(object):
         return html
     
     @cherrypy.expose
-    @jsonp
+    @Utils.jsonp
     def recentimages( self, camid=None, limit=10 ):
         '''
         /recentimages?camid=X&limit=Y 
         
-        Get the most recent images, up to the specified limit,
-        only for the specified camid if one is provided.
+        Get the most recent images, up to the specified limit, only for the 
+        specified camid if one is provided.
         '''
         
         try:
             if camid == None or camid == '':
-                imgtups = self.db().get_most_recent_images( limit )
+                imgtups = self.db.get_most_recent_images( limit )
             else:
-                imgtups = self.db().get_most_recent_images_for_camid( camid, limit )
+                imgtups = self.db.get_most_recent_images_for_camid( camid, limit )
 
             return { 'imgurls' : self.package_thumbs( imgtups ) } 
         except:
             return { 'imgurls' : [] }
     
     @cherrypy.expose
-    @jsonp
+    @Utils.jsonp
     def availableimages( self, camid=None, start=None, end=None ):
         '''
         /availableimages?camid=X&start=Y&end=Z
         
-        Get the images within the provided range, only
-        for the specified camid is one is provided.
+        Get the images within the provided range, only for the specified camid 
+        is one is provided.
         '''
         
         if start == None or start == '':
@@ -125,9 +133,9 @@ class WebServer(object):
         
         try:
             if camid == None or camid == '':
-                imgtups = self.db().get_images_for_range( start, end )
+                imgtups = self.db.get_images_for_range( start, end )
             else:
-                imgtups = self.db().get_images_for_range_camid( camid, start, end )
+                imgtups = self.db.get_images_for_range_camid( camid, start, end )
             
             return { 'imgurls' : self.package_thumbs( imgtups ) }
         except:
@@ -141,7 +149,7 @@ class WebServer(object):
         Returns the binary thumbnail data for a given camid and timestamp.
         '''
         
-        return self.image( camid, timestamp, self.db().get_thumb_path_for_image )
+        return self.image( camid, timestamp, self.db.get_thumb_path_for_image )
     
     @cherrypy.expose    
     def full( self, camid=0, timestamp=None ):
@@ -151,4 +159,4 @@ class WebServer(object):
         Returns the binary full image data for a given camid and timestamp.
         '''
         
-        return self.image( camid, timestamp, self.db().get_full_path_for_image )
+        return self.image( camid, timestamp, self.db.get_full_path_for_image )

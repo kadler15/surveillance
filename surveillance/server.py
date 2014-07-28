@@ -1,3 +1,10 @@
+'''
+server.py:
+
+CherryPy virtual host base server class that instantiates the media and web
+servers.
+'''
+
 from mediaserver import MediaServer
 from webserver import WebServer
 
