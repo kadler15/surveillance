@@ -4,9 +4,14 @@
 $(document).ready( function()
     {
         $(window).scroll( lazyLoadImages );
-        $(window).resize( lazyLoadImages );
-        $(window).resize( windowResize );
-        $(window).resize( largeImageViewAreaResize );
+        $(window).resize(function () {
+            // This order needs to be maintained to avoid problems with the
+            // large image view area sizing and particularly with leaving image
+            // placeholders unloaded on a big resize like window maximizing.
+            windowResize();
+            largeImageViewAreaResize();
+            lazyLoadImages();
+        });
 
         $( '#large-image-view-area').resizable( { handles: 'e, w', stop: largeImageViewAreaResize } );
 
@@ -84,6 +89,28 @@ function lazyLoadImages()
 }
 
 /* --------------------------------------------------------------------------
+ *  Update Helper
+ * --------------------------------------------------------------------------*/
+function updateWithImages( json )
+{
+    // Loop over the images list and append a blank image placeholder for each
+    // to the hoverbox ul. Each li contains a "blank" attr set to the src URL
+    // to push to the img tags when we want to load the images.
+    for( var i = 0; i < json.imgurls.length; i++ ) {
+        $( 'ul.hoverbox').append( '<li blank="' + json.imgurls[i] + '"><a href="#"><img src="" />' +
+            '<img src="" alt="description" class="preview" /></a></li>' );
+    }
+
+    // Initialize the large image viewer area
+    $( '#large-image' ).attr( 'src', json.imgurls[0] + '&size=f' );
+    largeImageViewAreaResize( null, null );
+
+    // Do an initial call to the lazy image loading handler so any images
+    // initially in the viewport are filled.
+    lazyLoadImages();
+}
+
+/* --------------------------------------------------------------------------
  *  Viewport Helper
  * --------------------------------------------------------------------------*/
 function isElementInViewport( el ) {
@@ -107,26 +134,4 @@ function isElementInViewport( el ) {
             (rect.top <= $(window).height() && rect.bottom > $(window).height())  // Cross bottom boundary
          )
     );
-}
-
-/* --------------------------------------------------------------------------
- *  Update Helper
- * --------------------------------------------------------------------------*/
-function updateWithImages( json )
-{
-    // Loop over the images list and append a blank image placeholder for each
-    // to the hoverbox ul. Each li contains a "blank" attr set to the src URL
-    // to push to the img tags when we want to load the images.
-    for( var i = 0; i < json.imgurls.length; i++ ) {
-        $( 'ul.hoverbox').append( '<li blank="' + json.imgurls[i] + '"><a href="#"><img src="" />' +
-            '<img src="" alt="description" class="preview" /></a></li>' );
-    }
-
-    // Initialize the large image viewer area
-    $( '#large-image' ).attr( 'src', json.imgurls[0] + '&size=f' );
-    largeImageViewAreaResize( null, null );
-
-    // Do an initial call to the lazy image loading handler so any images
-    // initially in the viewport are filled.
-    lazyLoadImages();
 }
