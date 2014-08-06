@@ -22,16 +22,36 @@
         <![endif]-->
 
         <!-- Add your site or application content here -->
-        <p>Hello world!.</p>
-        <form>
-            Start: <input type="text" name="start" id="start"><br>
-            End: <input type="text" name="end" id="end">
-        </form>
-        <button type="button" name="submit" id="submit" onclick="submitClick()">Submit</button>
-		<ul class="hoverbox" id="images">
-		</ul>
+
+        <!-- HEADER AREA -->
+        <div id="header-area">
+            <div id="header-right">
+                <span class="centering"></span><h1>Surveillance</h1>
+            </div>
+            <div id="header-left">
+                <span class="centering"></span>
+                <form>
+                    Start: <input type="text" name="start" id="start"><br>
+                    End: <input type="text" name="end" id="end">
+                </form>
+                <button type="button" name="submit" id="submit" onclick="submitClick()">Submit</button>
+            </div>
+        </div>
+
+        <!-- VIEW AREA -->
+        <div id="view-area">
+            <div id="large-image-view-area">
+                <span class="centering"></span><img id="large-image" src="" blank="blank"/>
+            </div>
+            <div id="navigation-area">
+                <ul class="hoverbox" id="images">
+                </ul>
+            </div>
+        </div>
 
         <script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <link rel="stylesheet" href="//ajax.googleapis.com/ajax/libs/jqueryui/1.11.0/themes/smoothness/jquery-ui.css" />
+        <script src="//ajax.googleapis.com/ajax/libs/jqueryui/1.11.0/jquery-ui.min.js"></script>
         <script>window.jQuery || document.write('<script src="/static/js/vendor/jquery-1.10.2.min.js"><\/script>')</script>
         <script src="/static/js/plugins.js"></script>
         <script src="/static/js/main.js"></script>

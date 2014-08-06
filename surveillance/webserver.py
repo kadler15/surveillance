@@ -43,19 +43,19 @@ class WebServer(object):
     #==========================================================================
     # Web Server Helpers
     #==========================================================================
-    def package_thumbs( self, imgtups ):
+    def package_images( self, imgtups ):
         '''
         Convert a list of tuples from the DB (camid, timestamp) to a list of 
-        URLs that will point to the thumbnails.
+        URLs that will point to the images (thumbnails by default).
         '''
         
         imgs = []
         for camid, timestamp in imgtups:
-                imgs.append( 'thumb?camid={0}&timestamp={1}'.format( camid, timestamp ) )
+                imgs.append( 'image?camid={0}&timestamp={1}'.format( camid, timestamp ) )
                 
         return imgs
     
-    def image( self, camid, timestamp, dbfunc ):
+    def get_image( self, camid, timestamp, dbfunc ):
         '''
         Returns the binary image data for the provided camid and timestamp 
         using the provided dbfunc to get the image path.
@@ -111,7 +111,7 @@ class WebServer(object):
             else:
                 imgtups = self.db.get_most_recent_images_for_camid( camid, limit )
 
-            return { 'imgurls' : self.package_thumbs( imgtups ) } 
+            return { 'imgurls' : self.package_images( imgtups ) } 
         except:
             return { 'imgurls' : [] }
     
@@ -137,26 +137,19 @@ class WebServer(object):
             else:
                 imgtups = self.db.get_images_for_range_camid( camid, start, end )
             
-            return { 'imgurls' : self.package_thumbs( imgtups ) }
+            return { 'imgurls' : self.package_images( imgtups ) }
         except:
             return { 'imgurls' : [] }
     
     @cherrypy.expose
-    def thumb( self, camid=0, timestamp=None ):
+    def image( self, camid=0, timestamp=None, size="t" ):
         '''
-        /thumb?camid=X&timestamp=Y
+        /image?camid=X&timestamp=Y
         
-        Returns the binary thumbnail data for a given camid and timestamp.
+        Returns the image data for a given camid, timestamp and size.
         '''
-        
-        return self.image( camid, timestamp, self.db.get_thumb_path_for_image )
-    
-    @cherrypy.expose    
-    def full( self, camid=0, timestamp=None ):
-        '''
-        /full?camid=X&timestamp=Y
-        
-        Returns the binary full image data for a given camid and timestamp.
-        '''
-        
-        return self.image( camid, timestamp, self.db.get_full_path_for_image )
+
+        if size == "f":
+            return self.get_image( camid, timestamp, self.db.get_full_path_for_image )
+        else:
+            return self.get_image( camid, timestamp, self.db.get_thumb_path_for_image )

@@ -5,8 +5,39 @@ $(document).ready( function()
     {
         $(window).scroll( lazyLoadImages );
         $(window).resize( lazyLoadImages );
+        $(window).resize( windowResize );
+        $(window).resize( largeImageViewAreaResize );
+
+        $( '#large-image-view-area').resizable( { handles: 'e, w', stop: largeImageViewAreaResize } );
+
+        // Immediately trigger a window resize to get initial sizing
+        windowResize();
     }
 );
+
+function windowResize()
+{
+    // Update the large-image-view-area height to account for the new window size
+    var headerHeight = $( '#header-area' ).height();
+    var windowHeight = $( window ).height();
+
+    $( '#large-image-view-area' ).css( 'height', windowHeight - headerHeight );
+}
+
+function largeImageViewAreaResize( event, ui )
+{
+    // Update the large-image max-width and max-height based on its view area
+    var largeImageViewAreaWidth = $( '#large-image-view-area' ).width();
+    var largeImageViewAreaHeight = $( '#large-image-view-area' ).height();
+
+    $( '#large-image').css( 'max-height', largeImageViewAreaHeight );
+    $( '#large-image').css( 'max-width', largeImageViewAreaWidth );
+
+    // Update the navigation-area width based on the new large-image-view-area width
+    var windowWidth = $( window ).width();
+
+    $( '#navigation-area' ).css( 'width', windowWidth - largeImageViewAreaWidth );
+}
 
 /* --------------------------------------------------------------------------
  *  Submit Handler
@@ -32,18 +63,22 @@ function submitClick()
  * --------------------------------------------------------------------------*/
 function lazyLoadImages()
 {
+    // No images!
     if( $( 'ul.hoverbox > li' ).size() <= 0 ) {
         return;
     }
 
-    var data = $( 'ul.hoverbox' ).data();
-
+    // Iterate through the images, checking if any images visible in the viewport
+    // (even just a sliver) are not yet loaded. These blank placeholders in the
+    // viewport get their <img src=""> updated so the images will load.
     for( var i = 0; i < $( 'ul.hoverbox > li' ).size(); i++ ) {
         var li = $( 'ul.hoverbox > li:nth-child(' + (i+1) + ')' );
 
         if( li.is( '[blank]' ) && isElementInViewport( li ) ) {
+            var src = li.attr( 'blank' );
             li.removeAttr( 'blank' );
-            li.html( '<a href="#"><img src="' + data.imgurls[i] + '" alt="description" /><img src="' + data.imgurls[i] + '" alt="description" class="preview" /></a>' );
+            li.html( '<a href="#"><img src="' + src + '" alt="description" />' +
+                '<img src="' + src + '" alt="description" class="preview" /></a>' );
         }
     }
 }
@@ -79,17 +114,19 @@ function isElementInViewport( el ) {
  * --------------------------------------------------------------------------*/
 function updateWithImages( json )
 {
-    // Loop over the images list and append a placeholder for each to
-    // the hoverbox ul. These will be dynamically filled as they are
-    // shown in the viewport.
+    // Loop over the images list and append a blank image placeholder for each
+    // to the hoverbox ul. Each li contains a "blank" attr set to the src URL
+    // to push to the img tags when we want to load the images.
     for( var i = 0; i < json.imgurls.length; i++ ) {
-        $( 'ul.hoverbox').append( '<li blank="blank"><a href="#"><img src="" /><img src="" alt="description" class="preview" /></a></li>' );
+        $( 'ul.hoverbox').append( '<li blank="' + json.imgurls[i] + '"><a href="#"><img src="" />' +
+            '<img src="" alt="description" class="preview" /></a></li>' );
     }
 
-    // Setup data on the images list to dynamically load images.
-    $( 'ul.hoverbox' ).data( 'imgurls', json.imgurls );
+    // Initialize the large image viewer area
+    $( '#large-image' ).attr( 'src', json.imgurls[0] + '&size=f' );
+    largeImageViewAreaResize( null, null );
 
-    // Do an initial call to the scroll handler so the images in the
-    // viewport right now are filled in.
+    // Do an initial call to the lazy image loading handler so any images
+    // initially in the viewport are filled.
     lazyLoadImages();
 }
